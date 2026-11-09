@@ -1,0 +1,62 @@
+services:
+  mysql-pedidos:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: pedidosdb
+      MYSQL_USER: pedidos
+      MYSQL_PASSWORD: pedidos-local
+      MYSQL_ROOT_PASSWORD: root-local
+    volumes:
+      - pedidos-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-upedidos", "-ppedidos-local"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  rabbitmq:
+    image: rabbitmq:4.1-management
+    environment:
+      RABBITMQ_DEFAULT_USER: pedidos
+      RABBITMQ_DEFAULT_PASS: rabbitmq-local
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_listener", "5672"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    ports:
+      - "127.0.0.1:15672:15672"
+
+  # Mock do Cardápio, só para teste local. No EKS use o ms-cardapio real.
+  ms-cardapio:
+    image: node:20-slim
+    command: ["node", "/app/server.js"]
+    environment:
+      PORT: "80"
+    volumes:
+      - ./mock-cardapio:/app:ro
+    ports:
+      - "127.0.0.1:8081:80"
+
+  ms-pedidos:
+    build: .
+    environment:
+      MYSQL_HOST: mysql-pedidos
+      MYSQL_USER: pedidos
+      MYSQL_PASSWORD: pedidos-local
+      MYSQL_DATABASE: pedidosdb
+      RABBITMQ_URL: amqp://pedidos:rabbitmq-local@rabbitmq:5672/%2F
+      CARDAPIO_URL: http://ms-cardapio
+      PORT: "3000"
+    depends_on:
+      mysql-pedidos:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      ms-cardapio:
+        condition: service_started
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  pedidos-data:

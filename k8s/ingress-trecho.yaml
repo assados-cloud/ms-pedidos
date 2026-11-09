@@ -1,0 +1,9 @@
+# Trecho para incluir em spec.rules[].http.paths do Ingress compartilhado da equipe.
+# Sem rewrite: o Express responde direto em /pedidos.
+- path: /pedidos
+  pathType: Prefix
+  backend:
+    service:
+      name: ms-pedidos
+      port:
+        number: 80

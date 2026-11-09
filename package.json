@@ -1,0 +1,19 @@
+{
+  "name": "ms-pedidos",
+  "version": "1.0.0",
+  "description": "Microsserviço de Pedidos da lanchonete (Express + MySQL + RabbitMQ)",
+  "main": "src/server.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "amqplib": "^0.10.4",
+    "express": "^4.21.2",
+    "mysql2": "^3.11.3"
+  }
+}

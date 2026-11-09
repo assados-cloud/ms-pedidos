@@ -1,0 +1,9 @@
+.git
+node_modules
+.env
+.env.eks
+k8s
+mock-cardapio
+test
+README.md
+PASSO-A-PASSO.md
