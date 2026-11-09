@@ -12,8 +12,10 @@ class CardapioIndisponivel extends Error {}
 // Service Discovery: o host é o nome do Service do Kubernetes (http://ms-cardapio).
 async function buscarProduto(produtoId) {
   let resposta;
+  let url;
   try {
-    resposta = await fetch(`${config.cardapioUrl}/cardapio/${produtoId}`, {
+    url = `${config.cardapioUrl}/cardapio/produtos/${produtoId}`;
+    resposta = await fetch(url, {
       headers: { accept: 'application/json' },
       signal: AbortSignal.timeout(3000),
     });
@@ -35,18 +37,13 @@ async function buscarProduto(produtoId) {
     throw new CardapioIndisponivel('cardápio devolveu uma resposta que não é JSON');
   }
 
-  if (
-    !dados ||
-    typeof dados.nome !== 'string' ||
-    typeof dados.preco !== 'number' ||
-    !Number.isFinite(dados.preco) ||
-    dados.preco < 0
-  ) {
+  const preco = dados && dados.preco !== null && dados.preco !== '' ? Number(dados.preco) : NaN;
+  if (!dados || typeof dados.nome !== 'string' || !Number.isFinite(preco) || preco < 0) {
     throw new CardapioIndisponivel('cardápio devolveu uma resposta fora do contrato');
   }
 
   // "pod" é opcional: o Cardápio devolve o nome do Pod para mostrar o balanceamento.
-  return { produto_id: produtoId, nome: dados.nome, preco: dados.preco, pod: dados.pod };
+  return { produto_id: produtoId, nome: dados.nome, preco, pod: dados.pod, url };
 }
 
 module.exports = { buscarProduto, ProdutoNaoEncontrado, CardapioIndisponivel };
