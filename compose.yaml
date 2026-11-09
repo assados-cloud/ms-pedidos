@@ -27,17 +27,6 @@ services:
     ports:
       - "127.0.0.1:15672:15672"
 
-  # Mock do Cardápio, só para teste local. No EKS use o ms-cardapio real.
-  ms-cardapio:
-    image: node:20-slim
-    command: ["node", "/app/server.js"]
-    environment:
-      PORT: "80"
-    volumes:
-      - ./mock-cardapio:/app:ro
-    ports:
-      - "127.0.0.1:8081:80"
-
   ms-pedidos:
     build: .
     environment:
@@ -46,15 +35,16 @@ services:
       MYSQL_PASSWORD: pedidos-local
       MYSQL_DATABASE: pedidosdb
       RABBITMQ_URL: amqp://pedidos:rabbitmq-local@rabbitmq:5672/%2F
-      CARDAPIO_URL: http://ms-cardapio
+      # Aponta para o ms-cardapio real. Padrão: Cardápio rodando na sua máquina na porta 8080.
+      CARDAPIO_URL: ${CARDAPIO_URL:-http://host.docker.internal:8080}
       PORT: "3000"
     depends_on:
       mysql-pedidos:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      ms-cardapio:
-        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:3000:3000"
 

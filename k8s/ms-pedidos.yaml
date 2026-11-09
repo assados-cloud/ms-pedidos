@@ -28,17 +28,24 @@ spec:
             - name: MYSQL_DATABASE
               value: pedidosdb
             - name: CARDAPIO_URL
-              value: http://ms-cardapio
+              value: http://ms-cardapio:8080
+            - name: RABBITMQ_HOST
+              value: rabbitmq
             - name: MYSQL_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ms-pedidos
                   key: MYSQL_PASSWORD
-            - name: RABBITMQ_URL
+            - name: RABBITMQ_USER
               valueFrom:
                 secretKeyRef:
                   name: ms-pedidos
-                  key: RABBITMQ_URL
+                  key: RABBITMQ_USER
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ms-pedidos
+                  key: RABBITMQ_PASSWORD
           readinessProbe:
             httpGet:
               path: /pedidos/health

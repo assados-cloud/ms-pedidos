@@ -7,6 +7,17 @@ function obrigatoria(nome) {
   return valor;
 }
 
+// Aceita RABBITMQ_URL pronta ou monta a URL com RABBITMQ_HOST/PORT/USER/PASSWORD/VHOST.
+function urlDoRabbitmq() {
+  if (process.env.RABBITMQ_URL) return process.env.RABBITMQ_URL;
+  const host = obrigatoria('RABBITMQ_HOST');
+  const usuario = encodeURIComponent(process.env.RABBITMQ_USER || 'guest');
+  const senha = encodeURIComponent(process.env.RABBITMQ_PASSWORD || 'guest');
+  const porta = process.env.RABBITMQ_PORT || '5672';
+  const vhost = encodeURIComponent(process.env.RABBITMQ_VHOST || '/');
+  return `amqp://${usuario}:${senha}@${host}:${porta}/${vhost}`;
+}
+
 module.exports = {
   port: Number(process.env.PORT || 3000),
   mysql: {
@@ -16,6 +27,6 @@ module.exports = {
     password: obrigatoria('MYSQL_PASSWORD'),
     database: process.env.MYSQL_DATABASE || 'pedidosdb',
   },
-  rabbitmqUrl: obrigatoria('RABBITMQ_URL'),
-  cardapioUrl: (process.env.CARDAPIO_URL || 'http://ms-cardapio').replace(/\/+$/, ''),
+  rabbitmqUrl: urlDoRabbitmq(),
+  cardapioUrl: (process.env.CARDAPIO_URL || 'http://ms-cardapio:8080').replace(/\/+$/, ''),
 };

@@ -11,14 +11,21 @@ function validarPedido(corpo) {
   }
 
   const erros = [];
-  const nome = typeof corpo.cliente_nome === 'string' ? corpo.cliente_nome.trim() : '';
-  if (!nome || nome.length > 120) {
-    erros.push('cliente_nome deve ser um texto de 1 a 120 caracteres');
+  // cliente_nome e cliente_email são opcionais (o plano da equipe só exige os itens).
+  let nome = null;
+  if (corpo.cliente_nome !== undefined && corpo.cliente_nome !== null) {
+    nome = typeof corpo.cliente_nome === 'string' ? corpo.cliente_nome.trim() : '';
+    if (!nome || nome.length > 120) {
+      erros.push('cliente_nome, se enviado, deve ser um texto de 1 a 120 caracteres');
+    }
   }
 
-  const email = typeof corpo.cliente_email === 'string' ? corpo.cliente_email.trim() : '';
-  if (!EMAIL.test(email) || email.length > 160) {
-    erros.push('cliente_email inválido');
+  let email = null;
+  if (corpo.cliente_email !== undefined && corpo.cliente_email !== null) {
+    email = typeof corpo.cliente_email === 'string' ? corpo.cliente_email.trim() : '';
+    if (!EMAIL.test(email) || email.length > 160) {
+      erros.push('cliente_email, se enviado, deve ser um e-mail válido');
+    }
   }
 
   const itens = [];

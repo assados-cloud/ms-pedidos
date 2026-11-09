@@ -3,8 +3,6 @@ process.env.RABBITMQ_URL = 'amqp://x';
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { spawn } = require('node:child_process');
-const path = require('node:path');
 const { validarPedido, calcularTotal } = require('../src/validacao');
 
 const base = { cliente_nome: 'Maria', cliente_email: 'maria@exemplo.com' };
@@ -25,6 +23,13 @@ test('aceita pedido válido e soma itens repetidos', () => {
   ]);
 });
 
+test('cliente é opcional, mas validado se enviado', () => {
+  const sem = validarPedido({ itens: [{ produto_id: 1, quantidade: 1 }] });
+  assert.equal(sem.erros, undefined);
+  assert.equal(sem.dados.cliente_nome, null);
+  assert.ok(validarPedido({ cliente_email: 'ruim', itens: [{ produto_id: 1, quantidade: 1 }] }).erros);
+});
+
 test('rejeita strings e valores não inteiros nos itens', () => {
   for (const item of [
     { produto_id: '1', quantidade: 2 },
@@ -36,9 +41,8 @@ test('rejeita strings e valores não inteiros nos itens', () => {
   }
 });
 
-test('rejeita itens vazios, e-mail ruim e corpo inválido', () => {
+test('rejeita itens vazios e corpo inválido', () => {
   assert.ok(validarPedido({ ...base, itens: [] }).erros);
-  assert.ok(validarPedido({ ...base, cliente_email: 'maria', itens: [{ produto_id: 1, quantidade: 1 }] }).erros);
   assert.ok(validarPedido(null).erros);
 });
 
@@ -53,21 +57,29 @@ test('calcula o total sem erro de ponto flutuante', () => {
   assert.equal(calcularTotal([{ preco_unitario: 0.1, quantidade: 3 }]), 0.3);
 });
 
-test('cliente do cardápio conversa com o mock', async () => {
-  const porta = 18099;
-  process.env.CARDAPIO_URL = `http://127.0.0.1:${porta}`;
-  const mock = spawn('node', [path.join(__dirname, '../mock-cardapio/server.js')], {
-    env: { ...process.env, PORT: String(porta) },
-    stdio: 'ignore',
+test('cliente do cardápio lê produto, trata 404 e indisponibilidade', async () => {
+  const http = require('node:http');
+  const servidor = http.createServer((req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    if (req.url === '/cardapio/produtos/1') {
+      res.end(JSON.stringify({ id: 1, nome: 'X-Burger', preco: 25.0, pod: 'pod-a' }));
+    } else {
+      res.statusCode = 404;
+      res.end('{}');
+    }
   });
+  await new Promise((r) => servidor.listen(0, '127.0.0.1', r));
+  process.env.CARDAPIO_URL = `http://127.0.0.1:${servidor.address().port}`;
   try {
-    await new Promise((r) => setTimeout(r, 600));
-    const { buscarProduto, ProdutoNaoEncontrado } = require('../src/cardapio');
+    const { buscarProduto, ProdutoNaoEncontrado, CardapioIndisponivel } = require('../src/cardapio');
     const produto = await buscarProduto(1);
     assert.equal(produto.nome, 'X-Burger');
-    assert.equal(produto.preco, 22);
+    assert.equal(produto.preco, 25);
+    assert.ok(produto.url.endsWith('/cardapio/produtos/1'));
     await assert.rejects(() => buscarProduto(99), ProdutoNaoEncontrado);
+    await new Promise((r) => servidor.close(r));
+    await assert.rejects(() => buscarProduto(1), CardapioIndisponivel);
   } finally {
-    mock.kill();
+    servidor.close();
   }
 });

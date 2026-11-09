@@ -49,6 +49,9 @@ app.post('/pedidos', async (req, res, next) => {
       quantidade: item.quantidade,
     }));
     const pods = [...new Set(produtos.map((p) => p.pod).filter(Boolean))];
+    for (const p of produtos) {
+      console.log(`GET ${p.url} nome="${p.nome}" preco=${p.preco} pod=${p.pod || '-'}`);
+    }
     const total = calcularTotal(itens);
     const criadoEm = new Date();
 
@@ -67,9 +70,9 @@ app.post('/pedidos', async (req, res, next) => {
       itens: itens.map((i) => ({ produto_id: i.produto_id, quantidade: i.quantidade })),
       total,
       criado_em: criadoEm.toISOString(),
-      cliente_nome: dados.cliente_nome,
-      cliente_email: dados.cliente_email,
     };
+    if (dados.cliente_nome) evento.cliente_nome = dados.cliente_nome;
+    if (dados.cliente_email) evento.cliente_email = dados.cliente_email;
 
     try {
       await rabbit.publicar(evento);
@@ -89,8 +92,18 @@ app.post('/pedidos', async (req, res, next) => {
       status = 'PENDENTE';
       console.error(`evento publicado, mas falhou ao marcar status pedido_id=${pedidoId} erro="${erro.message}"`);
     }
-    console.log(`evento publicado pedido_id=${pedidoId} status=${status}`);
-    return res.status(201).json({ pedido_id: pedidoId, total, status });
+    console.log(`publicado pedido.criado pedido_id=${pedidoId} status=${status}`);
+    return res.status(201).json({
+      pedido_id: pedidoId,
+      itens: itens.map((i) => ({
+        produto_id: i.produto_id,
+        nome: i.nome,
+        preco_unitario: i.preco_unitario,
+        quantidade: i.quantidade,
+      })),
+      total,
+      status,
+    });
   } catch (erro) {
     return next(erro);
   }

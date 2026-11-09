@@ -12,9 +12,9 @@ Ordem pensada para a entrega de 10/11. Os itens 1 e 2 você faz sozinho; do 3 em
 
 ## 2. Combinar com a equipe (hoje, antes de subir)
 
-- **Cardápio:** `GET /cardapio/{id}` devolve `200 {"id","nome","preco"}` (preço numérico) ou `404`. O Service se chama `ms-cardapio` e usa a porta 80. O mock usa exatamente esse contrato.
-- **Notificações:** o evento traz `cliente_nome` e `cliente_email`. A fila precisa de nome próprio, como `notificacoes`.
-- **Infra:** namespace comum, Service `rabbitmq` e usuário/senha do RabbitMQ (vão na `RABBITMQ_URL`), nome do repositório no ECR e o hostname do Ingress.
+- **Cardápio:** `GET /cardapio/produtos/{id}` (como no plano da equipe) devolve `200` com `nome` e `preco` (numérico) ou `404`. O Service se chama `ms-cardapio` e usa a porta **8080**. Não há mock no projeto: para testar local, o Pedidos precisa do ms-cardapio real (ou de qualquer servidor com esse contrato) na porta 8080.
+- **Notificações (no lugar da Cozinha):** declara a própria fila durável `notificacoes`, ligada ao exchange `pedido.criado` (fanout, durável). O evento só traz `cliente_nome` e `cliente_email` se o pedido os enviar; sem eles, a notificação pode citar só o `pedido_id` e o `total`. Rota sugerida: `GET /notificacoes`.
+- **Infra:** namespace comum, Service `rabbitmq` e usuário/senha do RabbitMQ (vão no Secret como `RABBITMQ_USER` e `RABBITMQ_PASSWORD`), registry das imagens (ECR ou Docker Hub público) e o hostname do Ingress.
 
 ## 3. Imagem no ECR
 
@@ -34,7 +34,7 @@ Use `--platform linux/amd64` principalmente se estiver num Mac com chip Apple, s
 Siga a seção "Integrar ao EKS da equipe" do README. Resumo:
 
 1. `kubectl config current-context` e `kubectl get storageclass` (precisa existir uma StorageClass padrão).
-2. Criar `.env.eks` a partir de `.env.eks.exemplo` e o Secret `ms-pedidos`.
+2. Criar `.env.eks` a partir de `.env.eks.exemplo` (senhas do MySQL e usuário/senha do RabbitMQ) e o Secret `ms-pedidos`.
 3. `kubectl apply` do `mysql-pedidos.yaml` e esperar o rollout.
 4. Aplicar o Service e o Deployment (com `kubectl set image --local`).
 5. Pedir à pessoa da infra para incluir `/pedidos` no Ingress (ou incluir você mesmo, usando `k8s/ingress-trecho.yaml`).
@@ -54,9 +54,9 @@ Siga "Testar antes da apresentação" no README. O fluxo que conta pontos: `POST
 | Isolamento dos dados | Só o Pedidos acessa o `mysql-pedidos`. O item guarda nome e preço copiados, então não lê o banco do Cardápio. Mostre as tabelas: `kubectl -n $NS exec deploy/mysql-pedidos -- sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "SELECT id,total,status FROM pedidos"'` |
 | Serviço no EKS | `kubectl -n $NS get pods,svc` |
 | Ingress | `curl $BASE_URL/pedidos` sem rewrite, vindo de fora do cluster. |
-| Service Discovery | `CARDAPIO_URL=http://ms-cardapio` no Deployment, nunca IP de Pod. |
+| Service Discovery | `CARDAPIO_URL=http://ms-cardapio:8080` e `RABBITMQ_HOST=rabbitmq` no Deployment (`kubectl describe deploy/ms-pedidos`), nunca IP de Pod. O log do Pedidos mostra a URL chamada. |
 | Balanceamento | Dispare vários pedidos e mostre `cardapio_pods=` mudando no log do Pedidos (e o campo `pod` do Cardápio). |
-| REST + RabbitMQ | O fluxo completo do passo 5. Se quiser mostrar a falha, derrube o Cardápio e mostre o `503`. |
+| REST + RabbitMQ | O fluxo completo do passo 5: log `GET http://ms-cardapio:8080/...` e `publicado pedido.criado pedido_id=...`. Se quiser mostrar a falha, derrube o Cardápio e mostre o `503`. |
 
 Perguntas que costumam aparecer: por que não há outbox (prazo; o status `PENDENTE` mostra o evento que não saiu), por que o exchange é fanout (cada consumidor cria a sua fila), e por que `pedido_id` vai como inteiro (o Estoque valida tipos estritos).
 

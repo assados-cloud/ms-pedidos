@@ -12,8 +12,8 @@ const pool = mysql.createPool({
 const TABELA_PEDIDOS = `
   CREATE TABLE IF NOT EXISTS pedidos (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    cliente_nome VARCHAR(120) NOT NULL,
-    cliente_email VARCHAR(160) NOT NULL,
+    cliente_nome VARCHAR(120) NULL,
+    cliente_email VARCHAR(160) NULL,
     total DECIMAL(10,2) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'PENDENTE',
     criado_em DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)

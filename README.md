@@ -11,12 +11,10 @@ Microsserviço da Equipe 15 para criar e consultar pedidos. Usa Node.js (Express
 | `GET /pedidos/{id}` | Detalha um pedido, com itens |
 | `GET /pedidos/health` | Readiness (testa o MySQL) |
 
-Corpo do `POST /pedidos`:
+Corpo do `POST /pedidos` (o preço nunca vem do cliente, é buscado no Cardápio):
 
 ```json
 {
-  "cliente_nome": "Maria",
-  "cliente_email": "maria@exemplo.com",
   "itens": [
     {"produto_id": 1, "quantidade": 2},
     {"produto_id": 3, "quantidade": 1}
@@ -24,14 +22,16 @@ Corpo do `POST /pedidos`:
 }
 ```
 
+`cliente_nome` e `cliente_email` são opcionais. Se enviados, são validados, gravados e repassados no evento para o Notificações.
+
 Fluxo:
 
 1. Valida o corpo (`400` se inválido). `produto_id` e `quantidade` precisam ser inteiros positivos.
-2. Para cada produto, chama `GET http://ms-cardapio/cardapio/{produto_id}`. Produto inexistente devolve `422`. Cardápio fora do ar ou com resposta fora do contrato devolve `503`.
+2. Para cada produto, chama `GET http://ms-cardapio:8080/cardapio/produtos/{produto_id}` (Service Discovery pelo nome do Service). Produto inexistente devolve `422`. Cardápio fora do ar ou com resposta fora do contrato devolve `503`.
 3. Calcula o total com os preços recebidos.
 4. Grava `pedidos` e `pedido_itens` numa transação, com status `PENDENTE`.
 5. Publica o evento no RabbitMQ, esperando a confirmação do broker.
-6. Marca o pedido como `PUBLICADO` e responde `201` com `{pedido_id, total, status}`.
+6. Marca o pedido como `PUBLICADO` e responde `201` com `{pedido_id, itens, total, status}`. Cada item traz `produto_id`, `nome`, `preco_unitario` e `quantidade`.
 
 Se a publicação falhar, o pedido fica `PENDENTE` e a API responde `502`. Não há outbox: o status deixa claro que o evento não saiu.
 
@@ -51,33 +51,34 @@ Exchange `pedido.criado`, tipo fanout, durável. Mensagem persistente, JSON:
   "pedido_id": 1,
   "itens": [{"produto_id": 1, "quantidade": 2}, {"produto_id": 3, "quantidade": 1}],
   "total": 57,
-  "criado_em": "2026-11-10T23:30:00.000Z",
-  "cliente_nome": "Maria",
-  "cliente_email": "maria@exemplo.com"
+  "criado_em": "2026-11-10T23:30:00.000Z"
 }
 ```
 
-`pedido_id`, `produto_id` e `quantidade` vão como números inteiros, porque o Estoque descarta strings sem aviso. `total`, `criado_em`, `cliente_nome` e `cliente_email` são extras que o Estoque ignora e o Notificações usa. O Pedidos só declara o exchange e não cria filas: cada consumidor cria a sua. A conexão com o RabbitMQ tenta de novo na subida e reconecta se cair.
+`pedido_id`, `produto_id` e `quantidade` vão como números inteiros, porque o Estoque descarta strings sem aviso. `total` e `criado_em` são extras que o Estoque ignora. `cliente_nome` e `cliente_email` só entram no evento se vierem no pedido. O Pedidos só declara o exchange e não cria filas: cada consumidor cria a sua. A conexão com o RabbitMQ tenta de novo na subida e reconecta se cair.
 
 ## Variáveis de ambiente
 
 | Variável | Padrão | Observação |
 | --- | --- | --- |
 | `MYSQL_PASSWORD` | (obrigatória) | Senha do usuário do MySQL |
-| `RABBITMQ_URL` | (obrigatória) | Ex.: `amqp://USUARIO:SENHA@rabbitmq:5672/%2F` |
+| `RABBITMQ_URL` | | URL pronta, ex.: `amqp://USUARIO:SENHA@rabbitmq:5672/%2F`. Se ausente, usa as variáveis abaixo |
+| `RABBITMQ_HOST` | (obrigatória sem `RABBITMQ_URL`) | No cluster: `rabbitmq` |
+| `RABBITMQ_USER` / `RABBITMQ_PASSWORD` | `guest` / `guest` | Credenciais do broker |
+| `RABBITMQ_PORT` / `RABBITMQ_VHOST` | `5672` / `/` | |
 | `MYSQL_HOST` | `localhost` | No cluster: `mysql-pedidos` |
 | `MYSQL_PORT` | `3306` | |
 | `MYSQL_USER` | `pedidos` | |
 | `MYSQL_DATABASE` | `pedidosdb` | |
-| `CARDAPIO_URL` | `http://ms-cardapio` | Nome do Service do Cardápio |
+| `CARDAPIO_URL` | `http://ms-cardapio:8080` | Nome e porta do Service do Cardápio |
 | `PORT` | `3000` | |
 
 ## Executar localmente
 
-O Compose sobe MySQL, RabbitMQ, um mock do Cardápio (`mock-cardapio/`, só para teste) e o Pedidos.
+O Compose sobe MySQL, RabbitMQ e o Pedidos. O Cardápio não faz parte do Compose: rode o `ms-cardapio` real na sua máquina (porta 8080) ou aponte para onde ele estiver com `CARDAPIO_URL`. Por padrão o Pedidos usa `http://host.docker.internal:8080`.
 
 ```bash
-docker compose up --build -d
+docker compose up --build -d   # ou: CARDAPIO_URL=http://OUTRO_HOST:8080 docker compose up --build -d
 docker compose logs -f ms-pedidos
 ```
 
@@ -85,10 +86,10 @@ Aguarde os logs `mysql pronto`, `rabbitmq pronto exchange=pedido.criado` e `ms-p
 
 ```bash
 curl -fsS http://localhost:3000/pedidos/health
-curl -fsS http://localhost:8081/cardapio
+curl -fsS http://localhost:8080/cardapio/produtos   # o Cardápio, rodando fora do Compose
 ```
 
-O mock tem os produtos 1 (X-Burger, 22,00), 2 (Batata Frita, 14,50) e 3 (Refrigerante, 13,00).
+Use os produtos do seed do Cardápio (no plano: 1 X-Burger 25,00, 2 Batata 12,00 e 3 Refri 7,00; dois do produto 1 mais um do produto 3 dão total 57).
 
 ### Criar um pedido e ver o evento
 
@@ -103,10 +104,10 @@ Em outro terminal, crie o pedido.
 ```bash
 curl -sS -X POST http://localhost:3000/pedidos \
   -H 'Content-Type: application/json' \
-  -d '{"cliente_nome":"Maria","cliente_email":"maria@exemplo.com","itens":[{"produto_id":1,"quantidade":2},{"produto_id":3,"quantidade":1}]}'
+  -d '{"itens":[{"produto_id":1,"quantidade":2},{"produto_id":3,"quantidade":1}]}'
 ```
 
-A resposta esperada é `201` com `{"pedido_id":1,"total":57,"status":"PUBLICADO"}`. O consumidor de teste imprime o evento, e o painel do RabbitMQ em http://localhost:15672 (usuário `pedidos`, senha `rabbitmq-local`) mostra o exchange `pedido.criado`.
+A resposta esperada é `201` com `pedido_id`, os `itens` com `preco_unitario`, `"total":57` e `"status":"PUBLICADO"`. Os logs do `ms-pedidos` mostram `GET http://ms-cardapio:8080/cardapio/produtos/1 ...` e `publicado pedido.criado pedido_id=1`. O consumidor de teste imprime o evento, e o painel do RabbitMQ em http://localhost:15672 (usuário `pedidos`, senha `rabbitmq-local`) mostra o exchange `pedido.criado`.
 
 ```bash
 curl -fsS http://localhost:3000/pedidos/1
@@ -118,27 +119,27 @@ curl -fsS http://localhost:3000/pedidos
 ```bash
 # produto inexistente: 422
 curl -i -X POST http://localhost:3000/pedidos -H 'Content-Type: application/json' \
-  -d '{"cliente_nome":"Maria","cliente_email":"maria@exemplo.com","itens":[{"produto_id":99,"quantidade":1}]}'
+  -d '{"itens":[{"produto_id":99,"quantidade":1}]}'
 
 # quantidade como string: 400
 curl -i -X POST http://localhost:3000/pedidos -H 'Content-Type: application/json' \
-  -d '{"cliente_nome":"Maria","cliente_email":"maria@exemplo.com","itens":[{"produto_id":1,"quantidade":"2"}]}'
+  -d '{"itens":[{"produto_id":1,"quantidade":"2"}]}'
 
 # cardápio fora do ar: 503
-docker compose stop ms-cardapio
+# pare o Cardápio que você subiu fora do Compose
 curl -i -X POST http://localhost:3000/pedidos -H 'Content-Type: application/json' \
-  -d '{"cliente_nome":"Maria","cliente_email":"maria@exemplo.com","itens":[{"produto_id":1,"quantidade":1}]}'
-docker compose start ms-cardapio
+  -d '{"itens":[{"produto_id":1,"quantidade":1}]}'
+# e suba-o de novo
 ```
 
-Testes unitários (validação, total e cliente do Cardápio contra o mock), sem precisar de Docker:
+Testes unitários (validação, total e cliente do Cardápio contra um servidor falso criado no próprio teste), sem precisar de Docker:
 
 ```bash
 npm install
 npm test
 ```
 
-Para encerrar: `docker compose down -v`.
+Para encerrar: `docker compose down -v`. Se você rodou uma versão anterior deste projeto, use `down -v` antes de subir de novo, para recriar as tabelas.
 
 ## Integrar ao EKS da equipe
 
@@ -156,7 +157,7 @@ IMAGE='REGISTRY/ms-pedidos:TAG'
 docker buildx build --platform linux/amd64 --tag "$IMAGE" --push .
 ```
 
-Copie `.env.eks.exemplo` para `.env.eks` e troque os valores. A `RABBITMQ_URL` deve apontar para o Service `rabbitmq` e usar as credenciais da infra da equipe. O vhost padrão `/` vai codificado como `%2F`.
+Copie `.env.eks.exemplo` para `.env.eks` e troque os valores. `RABBITMQ_USER` e `RABBITMQ_PASSWORD` são as credenciais do RabbitMQ da infra da equipe. O host (`RABBITMQ_HOST=rabbitmq`) e o Cardápio (`CARDAPIO_URL=http://ms-cardapio:8080`) já estão no Deployment como variáveis de ambiente, o que serve de evidência de Service Discovery: `kubectl -n "$NS" describe deploy/ms-pedidos`.
 
 ```bash
 NS='NAMESPACE_DA_EQUIPE'
@@ -191,7 +192,7 @@ Inclua o conteúdo de `k8s/ingress-trecho.yaml` na lista `spec.rules[].http.path
 
    ```bash
    curl -sS -X POST "$BASE_URL/pedidos" -H 'Content-Type: application/json' \
-     -d '{"cliente_nome":"Maria","cliente_email":"maria@exemplo.com","itens":[{"produto_id":1,"quantidade":2},{"produto_id":3,"quantidade":1}]}'
+     -d '{"itens":[{"produto_id":1,"quantidade":2},{"produto_id":3,"quantidade":1}]}'
    ```
 
 5. Veja `baixa ok pedido_id=...` em `kubectl -n "$NS" logs deploy/ms-estoque --tail=20` e consulte `/estoque` de novo. O produto 1 cai 2, o produto 3 cai 1 e o produto 2 mantém o saldo.
